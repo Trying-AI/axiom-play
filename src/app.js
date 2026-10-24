@@ -1,7 +1,8 @@
 import {games,categories,dailyIds,gameById} from './catalog.js';
 import {icon,artwork} from './visuals.js';
 import {hashSeed,localDay} from './lib.js';
-import {readProgress,recordSession,getStats,clearProgress} from './progress.js';
+import {readProgress,recordSession,getStats,clearProgress,setProgressOwner,getProgressOwner} from './progress.js';
+import {auth} from './auth.js';
 import {currentRoute,routeHref} from './pages-router.js';
 
 const app = document.querySelector('#app');
@@ -10,6 +11,7 @@ let cleanup = () => {};
 let routeToken = 0;
 let toastTimer;
 let searchReturnFocus;
+let activeSection = '/';
 const escape = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const formatTime = seconds => `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}`;
 const dailyLink = id => `/play/${id}?daily=${localDay()}&difficulty=medium`;
@@ -30,6 +32,7 @@ function navigate(href, replace = false) {
 }
 
 function shell(content, section = '/') {
+  activeSection = section;
   const stats=getStats(currentSessions());
   const active = section.startsWith('/play')?'/games':section;
   app.innerHTML=`
@@ -37,15 +40,43 @@ function shell(content, section = '/') {
       <a class="brand" href="#/" aria-label="Axiom home"><span class="brand-mark">a<span>·</span></span>axiom<span class="brand-dot">.</span></a>
       <div class="sidebar-label">YOUR DAILY MINDSPACE</div>
       <nav>${nav.map(([glyph,label,url])=>`<a href="#${url}" class="nav-link ${active===url?'active':''}" ${active===url?'aria-current="page"':''}>${icon(glyph)}<span>${label}</span>${url==='/daily'?'<span class="nav-count">3</span>':''}</a>`).join('')}</nav>
-      <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<span>Your space. Your pace.<small>Progress stays on this device.</small></span></div><a href="#/settings" class="nav-link ${active==='/settings'?'active':''}">${icon('settings')}<span>Preferences</span></a><div class="profile"><span class="avatar">Y</span><span>You<small>Curious by nature</small></span><span class="local-label">LOCAL</span></div></div>
+      <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<span>Your space. Your pace.<small>Progress stays on this device.</small></span></div><a href="#/settings" class="nav-link ${active==='/settings'?'active':''}">${icon('settings')}<span>Preferences</span></a><a class="profile auth-profile account-entry" href="#/account" aria-label="Sign in to Axiom"><span class="avatar" data-account-initial>Y</span><span><span data-account-name>Sign in</span><small data-account-detail>Playing as a guest</small></span><span class="local-label" data-account-label>GUEST</span></a></div>
     </aside>
-    <div class="workspace"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">${icon('menu')}</button><div class="breadcrumbs">Your playground<span>/</span><strong>${section.startsWith('/play')?'Let’s play':nav.find(item=>item[2]===section)?.[1]||'Preferences'}</strong></div><div class="header-actions"><button class="search-button" id="open-search">${icon('search',17)}<span>Find a game</span><kbd>⌘ K</kbd></button><span class="streak" title="Consecutive days with a completed game">${icon('bolt',17)}<b>${stats.streak}</b><span>day streak</span></span><span class="avatar small">Y</span></div></header><main id="main" tabindex="-1">${content}</main><footer class="footer"><span>A little play. A sharper mind.</span><span>Made for curious minds <span class="footer-dot">•</span> Local preview</span></footer></div>`;
+    <div class="workspace"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">${icon('menu')}</button><div class="breadcrumbs">Your playground<span>/</span><strong>${section.startsWith('/play')?'Let’s play':section==='/account'?'Your account':nav.find(item=>item[2]===section)?.[1]||'Preferences'}</strong></div><div class="header-actions"><button class="search-button" id="open-search">${icon('search',17)}<span>Find a game</span><kbd>⌘ K</kbd></button><span class="streak" title="Consecutive days with a completed game">${icon('bolt',17)}<b>${stats.streak}</b><span>day streak</span></span><a class="auth-header-button account-entry" href="#/account" aria-label="Sign in to Axiom" data-account-action-label>Sign in</a></div></header><main id="main" tabindex="-1">${content}</main><footer class="footer"><span>A little play. A sharper mind.</span><span>Made for curious minds <span class="footer-dot">•</span> Browser prototype</span></footer></div>`;
+  updateAccountChrome();
   document.querySelector('#open-search').setAttribute('aria-label','Find a game');
   document.querySelector('#open-search').onclick=openSearch;
   document.querySelector('#menu-toggle').onclick=()=>{
     const isOpen=document.body.classList.toggle('nav-open');
     document.querySelector('#menu-toggle').setAttribute('aria-expanded',String(isOpen));
   };
+}
+
+function updateAccountChrome() {
+  const user=auth.getSnapshot().user;
+  const name=user?.displayName||user?.email?.split('@')[0]||'Your account';
+  document.querySelectorAll('[data-account-initial]').forEach(node=>{node.textContent=user?Array.from(name)[0].toUpperCase():'Y';});
+  document.querySelectorAll('.account-entry').forEach(node=>node.setAttribute('aria-label',user?'Your Axiom account':'Sign in to Axiom'));
+  const nameNode=document.querySelector('[data-account-name]');if(nameNode)nameNode.textContent=user?name:'Sign in';
+  const detail=document.querySelector('[data-account-detail]');if(detail)detail.textContent=user?(user.emailVerified?'Your account':'Verify your email'):'Playing as a guest';
+  const actionLabel=document.querySelector("[data-account-action-label]");if(actionLabel)actionLabel.textContent=user?"Account":"Sign in";
+  const label=document.querySelector('[data-account-label]');if(label)label.textContent=user?'ACCOUNT':'GUEST';
+  const streak=document.querySelector('.streak b');if(streak)streak.textContent=String(getStats(currentSessions()).streak);
+}
+
+async function renderAccount(token,mode='account') {
+  shell('<div id="account-mount"><div class="loading-state">Opening your account…</div></div>','/account');
+  document.title='Your account · Axiom';
+  let disposed=false,dispose;
+  cleanup=()=>{disposed=true;dispose?.();};
+  try {
+    const {mountAuth}=await import('./auth-ui.js');
+    if(disposed||token!==routeToken)return;
+    dispose=mountAuth(document.querySelector('#account-mount'),{navigate,mode});
+  }catch{
+    if(disposed)return;
+    document.querySelector('#account-mount').innerHTML='<div class="empty-state"><h2>Sign-in could not load.</h2><p>Please refresh to try again. You can still enjoy all the games as a guest.</p><a class="button secondary" href="#/games">Explore the games</a></div>';
+  }
 }
 
 function gameCard(game) {
@@ -106,7 +137,7 @@ function renderProgress() {
 
 function renderSettings() {
   let reduced=false;try{reduced=localStorage.getItem('axiom.reduced-motion')==='true';}catch{}
-  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Results stay in this browser. No account or cloud sync is used in this preview.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom is a local preview with 13 playable games. Live matches, friends and account sync are planned for a future version. Puzzle rules and session results are already separated to support that next step.</p></div>`,'/settings');
+  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Results stay in this browser, separately for each signed-in account and for guests. Cross-device sync is not enabled.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom has 13 playable games and optional account sign-in. The games run on your device. Account authentication is handled by Firebase; game progress stays in this browser. Live matches and cross-device progress sync are planned for later.</p></div>`,'/settings');
   document.querySelector('#motion-setting').onchange=event=>{const value=event.target.checked;document.documentElement.classList.toggle('reduce-motion',value);try{localStorage.setItem('axiom.reduced-motion',String(value));}catch{toast('This browser could not save the preference.');}};
   document.querySelector('#clear-progress').onclick=()=>{
     showDialog(`<div class="dialog-symbol">${icon('reset',28)}</div><h2>A fresh start?</h2><p>This removes your saved sessions and streak from this browser.</p><div class="dialog-actions"><button class="button secondary" data-close>Keep my progress</button><button class="button dark" id="confirm-clear">Clear progress</button></div>`);
@@ -117,6 +148,10 @@ function renderSettings() {
 async function renderGame(id, token) {
   const game=gameById(id);
   if(!game){renderNotFound();return;}
+  const authSnapshot=auth.getSnapshot();
+  const sessionOwner=authSnapshot.status==='idle'||authSnapshot.loading
+    ? auth.initialize().then(()=>auth.getSnapshot().user?.uid??null).catch(()=>null)
+    : Promise.resolve(getProgressOwner());
   const params=new URLSearchParams(currentRoute().search);
   const daily=params.get('daily');
   const parsedDay = daily && /^\d{4}-\d{2}-\d{2}$/.test(daily) ? new Date(`${daily}T12:00:00`) : null;
@@ -144,9 +179,20 @@ async function renderGame(id, token) {
     controller=module.mount(mount,{seed,difficulty,onProgress(progress={}){if(disposed)return;if(typeof progress.paused==='boolean')setClockState(progress.paused);if(Number.isFinite(progress.moves)){moves=progress.moves;document.querySelector('#game-moves').textContent=String(moves);}},onComplete(result={}){
       if(complete||disposed)return;
       tick();complete=true;setClockState(true);clearInterval(interval);
-      const saved=recordSession({game:id,difficulty,seed,seconds,moves:result.moves??moves,score:result.score??0,accuracy:result.accuracy??100,hints,daily:dailyDate});
+      const completedSession={game:id,difficulty,seed,seconds,moves:result.moves??moves,score:result.score??0,accuracy:result.accuracy??100,hints,daily:dailyDate};
+      // Optional account restoration must never delay the game result screen.
+      sessionOwner.then(owner=>{
+        const saved=recordSession(completedSession,undefined,owner);
+        if(disposed||token!==routeToken){
+          if(saved&&owner===getProgressOwner()&&['/','/games','/daily','/progress','/settings'].includes(activeSection))render();
+          return;
+        }
+        const note=overlay.querySelector('[data-progress-save]');
+        if(note)note.textContent=saved?'Progress saved on this device.':'Progress could not be saved. Check browser storage settings.';
+        updateAccountChrome();
+      });
       const feedback=result.accuracy!=null&&result.accuracy<100?'Practice makes progress. Keep that curiosity going.':'One thoughtful little win. Nicely done.';
-      showDialog(`<div class="completion-spark">${icon('spark',36)}</div><span class="eyebrow">${game.name.toUpperCase()} · SESSION COMPLETE</span><h2>A little sharper<span class="purple-text">.</span></h2><p>${feedback}</p><div class="result-stats"><div><strong>${formatTime(seconds)}</strong><span>Time</span></div><div><strong>${result.moves??moves}</strong><span>Moves</span></div><div><strong>${hints}</strong><span>Hints</span></div>${result.accuracy!=null?`<div><strong>${Math.round(result.accuracy)}%</strong><span>Accuracy</span></div>`:''}</div>${hints?'<p class="result-note">Completed with guidance. Hints are included in your history.</p>':''}<div class="dialog-actions"><a class="button secondary" href="#${dailyDate?'/daily':'/progress'}">${dailyDate?'Back to daily mix':'View progress'}</a><button class="button dark" id="play-again">${dailyDate?'Play again':'Another puzzle'} ${icon('arrow',16)}</button></div><p class="result-note">${saved?'Progress saved on this device.':'Progress could not be saved. Check browser storage settings.'}</p>`);
+      showDialog(`<div class="completion-spark">${icon('spark',36)}</div><span class="eyebrow">${game.name.toUpperCase()} · SESSION COMPLETE</span><h2>A little sharper<span class="purple-text">.</span></h2><p>${feedback}</p><div class="result-stats"><div><strong>${formatTime(seconds)}</strong><span>Time</span></div><div><strong>${result.moves??moves}</strong><span>Moves</span></div><div><strong>${hints}</strong><span>Hints</span></div>${result.accuracy!=null?`<div><strong>${Math.round(result.accuracy)}%</strong><span>Accuracy</span></div>`:''}</div>${hints?'<p class="result-note">Completed with guidance. Hints are included in your history.</p>':''}<div class="dialog-actions"><a class="button secondary" href="#${dailyDate?'/daily':'/progress'}">${dailyDate?'Back to daily mix':'View progress'}</a><button class="button dark" id="play-again">${dailyDate?'Play again':'Another puzzle'} ${icon('arrow',16)}</button></div><p class="result-note" data-progress-save>Saving progress on this device…</p>`);
       document.querySelector('#play-again').onclick=()=>{closeDialog();startAgain(true);};
     }});
   }catch(error){if(disposed)return;console.error(error);document.querySelector('#game-mount').innerHTML='<div class="empty-state"><h3>This game could not load.</h3><p>Please refresh and try again.</p><button class="button secondary" id="retry-game">Try again</button></div>';document.querySelector('#retry-game').onclick=()=>render();}
@@ -182,6 +228,9 @@ function render(){
   else if(path==='/daily')renderDaily();
   else if(path==='/progress')renderProgress();
   else if(path==='/settings')renderSettings();
+  else if(path==='/account'||path==='/login')renderAccount(routeToken,path==='/login'?'signin':'account');
+  else if(path==='/register')renderAccount(routeToken,'register');
+  else if(path==='/forgot-password')renderAccount(routeToken,'reset');
   else if(path.startsWith('/play/'))renderGame(path.split('/')[2],routeToken);
   else renderNotFound();
 }
@@ -217,3 +266,12 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshCal
 refreshCalendar();
 try{document.documentElement.classList.toggle('reduce-motion',localStorage.getItem('axiom.reduced-motion')==='true');}catch{}
 render();
+auth.subscribe(snapshot=>{
+  const owner=snapshot.user?.uid??null;
+  const changed=owner!==getProgressOwner();
+  setProgressOwner(owner);
+  updateAccountChrome();
+  if(changed&&['/','/games','/daily','/progress','/settings'].includes(activeSection))render();
+});
+// Restore identity without blocking initial rendering or loading any game module.
+auth.initialize().catch(()=>{});
