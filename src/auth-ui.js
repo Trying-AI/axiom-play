@@ -1,5 +1,6 @@
 import {auth} from './auth.js';
 import {icon} from './visuals.js';
+import {games} from './catalog.js';
 
 const modes = new Set(['signin', 'register', 'reset', 'account']);
 
@@ -125,7 +126,7 @@ export function mountAuth(container, {navigate = () => {}, mode = 'signin', clie
       <p class="auth-loading" role="status" data-auth-loading hidden>Getting your account ready…</p><div class="auth-status" data-auth-status tabindex="-1" hidden></div>
       ${!signedIn && snapshot.configured ? `<div class="auth-guest-divider"><span>or take your time</span></div><button type="button" class="auth-guest-button" data-auth-guest>Continue as a guest ${icon('arrow', 15)}</button>` : ''}
       <p class="auth-device-note">${icon('shield', 15)}<span>Your game history stays in this browser.<br>Signing in does not sync or back up your progress.</span></p></section>
-      <aside class="auth-aside" aria-label="Your Axiom playground"><div class="auth-aside-art" aria-hidden="true"><span class="auth-art-spark">✧</span><div class="auth-art-grid">${Array.from({length: 9}, (_, i) => `<span>${i === 4 ? icon('spark', 29) : i === 0 || i === 8 ? '·' : ''}</span>`).join('')}</div><span class="auth-art-circle"></span></div><span class="eyebrow">YOUR DAILY MINDSPACE</span><h2>A little play.<br>A sharper mind.</h2><p>Thirteen thoughtful games.<br>As much curiosity as you can bring.</p><div class="auth-aside-foot">${icon('check', 16)} All solo games are open to everyone.</div></aside></div>`;
+      <aside class="auth-aside" aria-label="Your Axiom playground"><div class="auth-aside-art" aria-hidden="true"><span class="auth-art-spark">✧</span><div class="auth-art-grid">${Array.from({length: 9}, (_, i) => `<span>${i === 4 ? icon('spark', 29) : i === 0 || i === 8 ? '·' : ''}</span>`).join('')}</div><span class="auth-art-circle"></span></div><span class="eyebrow">YOUR DAILY MINDSPACE</span><h2>A little play.<br>A sharper mind.</h2><p>${games.length} thoughtful games.<br>As much curiosity as you can bring.</p><div class="auth-aside-foot">${icon('check', 16)} All solo games are open to everyone.</div></aside></div>`;
 
     if (signedIn) {
       const name = snapshot.user.displayName?.trim() || 'there';
