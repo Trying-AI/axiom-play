@@ -25,6 +25,9 @@ export function icon(name, size = 20) {
     pipes:'<path d="M3 7h8V3m0 4v10h10m-10 0v4"/>',
     cross:'<path d="M3 7h8M7 3v8m8 4 6 6m0-6-6 6"/>',
     patches:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M11 3v18m0-10h10M3 15h8"/>',
+    skyline:'<path d="M3 21h18M5 21V10h5v11m0 0V3h5v18m0 0V7h4v14M7 13h1m4-7h1m4 4h1"/>',
+    knight:'<path d="M5 21h14M7 18c0-5 5-6 5-10L7 9 5 6l7-4 5 5c3 5 1 8 1 11H7Z"/><circle cx="12" cy="5" r=".6"/>',
+    code:'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m6 9 2 3-2 3m5-6v6m4-6h3m-3 6h3"/>',
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shapes[name]||shapes.spark}</svg>`;
 }
@@ -32,7 +35,24 @@ export function artwork(id, large = false) {
   let shapes = '';
   const rect=(x,y,w,h,c,rx=7)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${c}"/>`;
   const text=(x,y,t,c='#404967',s=21)=>`<text x="${x}" y="${y}" fill="${c}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="${s}" font-weight="600">${t}</text>`;
-  if(id==='queens') {
+  if(id==='nonogram') {
+    const filled=[1,3,5,6,7,8,9,10,11,12,13,14,16,17,18,22];
+    for(let i=0;i<25;i++)shapes+=rect(84+i%5*25,35+Math.floor(i/5)*25,22,22,filled.includes(i)?'#659c88':'#ffffffa0',4);
+    ['1 1','5','5','3','1'].forEach((v,i)=>{shapes+=text(65,51+i*25,v,'#4e8072',10);});
+    [2,4,4,4,2].forEach((v,i)=>{shapes+=text(95+i*25,25,v,'#4e8072',11);});
+  } else if(id==='skyscrapers') {
+    const heights=[2,4,1,3];
+    for(let i=0;i<4;i++){const x=60+i*43,h=heights[i]*25;shapes+=rect(x,151-h,34,h,['#9eb8df','#6489bb','#b2c9e9','#809fca'][i],5);for(let j=0;j<heights[i];j++)shapes+=rect(x+8,158-h+j*25,6,8,'#ffffffba',1)+rect(x+20,158-h+j*25,6,8,'#ffffffba',1);shapes+=text(x+17,168,heights[i],'#5574a3',11);}
+    shapes+=text(140,22,'2 ←   → 2','#5574a3',14);
+  } else if(id==='lightsout') {
+    for(let i=0;i<9;i++){const x=72+i%3*47,y=16+Math.floor(i/3)*47,on=[1,3,4,5,7].includes(i);shapes+=rect(x,y,42,42,on?'#efd07c':'#ffffff8a',9);shapes+=`<circle cx="${x+21}" cy="${y+21}" r="${on?9:5}" fill="${on?'#fff8de':'#d9d6c5'}"/>`;}
+  } else if(id==='knighttrail') {
+    for(let i=0;i<16;i++)shapes+=rect(65+i%4*37,14+Math.floor(i/4)*37,33,33,(i+Math.floor(i/4))%2?'#bcaee1':'#ffffff99',5);
+    shapes+='<path d="M81 30 155 67 118 141 81 67 155 104 192 30" stroke="#8162b6" stroke-width="3" stroke-dasharray="4 5" fill="none"/>';
+    shapes+=text(81,42,'♞','#665094',31)+`<circle cx="192" cy="30" r="6" fill="#8162b6"/>`;
+  } else if(id==='codebreaker') {
+    [[1,2,3],[3,1,5],[3,6,5]].forEach((row,r)=>{row.forEach((value,c)=>{shapes+=rect(55+c*42,22+r*46,36,36,'#ffffffb0',7)+text(73+c*42,48+r*46,value,'#b77958',19);});for(let c=0;c<3;c++)shapes+=`<circle cx="${198+c*13}" cy="${40+r*46}" r="4" fill="${c<=r?'#bb805f':'#ffffff'}"/>`;});
+  } else if(id==='queens') {
     const colors=['#b5a0e9','#b5a0e9','#d5c6f3','#d5c6f3','#b5a0e9','#a5c9bc','#a5c9bc','#d5c6f3','#efc27d','#efc27d','#a5c9bc','#a1b9e4','#efc27d','#a1b9e4','#a1b9e4','#a1b9e4'];
     for(let i=0;i<16;i++) shapes+=rect(65+i%4*37,14+Math.floor(i/4)*37,34,34,colors[i]);
     for(const [x,y] of [[119,31],[193,68],[82,105],[156,142]]) shapes+=`<path d="m${x-11} ${y-4} 3 13h16l3-13-7 5-4-9-4 9Z" fill="#fff" stroke="#665393" stroke-width="1.5"/>`;

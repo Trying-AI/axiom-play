@@ -81,17 +81,18 @@ async function renderAccount(token,mode='account') {
 
 function gameCard(game) {
   const count = currentSessions().filter(s=>s.game===game.id).length;
-  return `<a class="game-card" href="#/play/${game.id}"><div class="game-art ${game.color}"><span class="art-category">${icon(game.icon,13)} ${game.category}</span>${artwork(game.id)}<span class="card-play" aria-hidden="true">${icon('arrow',20)}</span></div><div class="card-body"><div class="card-title"><h3>${game.name}</h3>${count?`<span class="played-badge" title="${count} sessions completed">${icon('check',14)}</span>`:''}</div><p>${game.description}</p><div class="card-meta"><span>${icon('clock',13)} ${game.time}</span><span>3 levels ${icon('arrow',13)}</span></div></div></a>`;
+  return `<a class="game-card" href="#/play/${game.id}"><div class="game-art ${game.color}"><span class="art-category">${icon(game.icon,13)} ${game.category}</span>${artwork(game.id)}<span class="card-play" aria-hidden="true">${icon('arrow',20)}</span></div><div class="card-body"><div class="card-title"><h3>${game.name}${game.isNew?' <span class="mini-label">NEW</span>':''}</h3>${count?`<span class="played-badge" title="${count} sessions completed">${icon('check',14)}</span>`:''}</div><p>${game.description}</p><div class="card-meta"><span>${icon('clock',13)} ${game.time}</span><span>3 levels ${icon('arrow',13)}</span></div></div></a>`;
 }
 
 function chips(selected='All games') {
-  return `<div class="filter-chips" role="group" aria-label="Game category">${categories.map(c=>`<button class="filter-chip ${c===selected?'selected':''}" data-filter="${c}" aria-pressed="${c===selected}">${c}${c==='All games'?` <span>${games.length}</span>`:''}</button>`).join('')}</div>`;
+  const filters=games.some(game=>game.isNew)?[categories[0],'New',...categories.slice(1)]:categories;
+  return `<div class="filter-chips" role="group" aria-label="Game category">${filters.map(c=>`<button class="filter-chip ${c===selected?'selected':''}" data-filter="${c}" aria-pressed="${c===selected}">${c}${c==='All games'?` <span>${games.length}</span>`:c==='New'?` <span>${games.filter(game=>game.isNew).length}</span>`:''}</button>`).join('')}</div>`;
 }
 
 function wireFilters(isHome=false) {
   document.querySelectorAll('[data-filter]').forEach(button=>button.onclick=()=>{
     const category=button.dataset.filter;
-    const list=games.filter(g=>category==='All games'||g.category===category);
+    const list=games.filter(g=>category==='All games'||(category==='New'?g.isNew:g.category===category));
     document.querySelector('#game-grid').innerHTML=(isHome&&category==='All games'?list.slice(0,6):list).map(gameCard).join('');
     document.querySelectorAll('[data-filter]').forEach(b=>{b.classList.toggle('selected',b===button);b.setAttribute('aria-pressed',String(b===button));});
     const label=document.querySelector('#game-count');if(label)label.textContent=`${list.length} games to explore`;
@@ -119,7 +120,7 @@ function weekDots(sessions) {
 }
 
 function renderLibrary() {
-  shell(`<div class="page-heading"><div><div class="eyebrow">THE PLAYGROUND</div><h1>Follow your curiosity<span class="purple-text">.</span></h1><p>Thirteen ways to stretch your mind. Find the one that clicks.</p></div><span class="heading-count">13<span>games, endless little wins</span></span></div><section>${chips()}<div class="list-caption"><span id="game-count">13 games to explore</span><span>No downloads. Just play.</span></div><div id="game-grid" class="game-grid">${games.map(gameCard).join('')}</div></section>`,'/games');
+  shell(`<div class="page-heading"><div><div class="eyebrow">THE PLAYGROUND</div><h1>Follow your curiosity<span class="purple-text">.</span></h1><p>${games.length} ways to stretch your mind. Find the one that clicks.</p></div><span class="heading-count">${games.length}<span>games, endless little wins</span></span></div><section>${chips()}<div class="list-caption"><span id="game-count">${games.length} games to explore</span><span>No downloads. Just play.</span></div><div id="game-grid" class="game-grid">${games.map(gameCard).join('')}</div></section>`,'/games');
   wireFilters();
 }
 
@@ -137,7 +138,7 @@ function renderProgress() {
 
 function renderSettings() {
   let reduced=false;try{reduced=localStorage.getItem('axiom.reduced-motion')==='true';}catch{}
-  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Results stay in this browser, separately for each signed-in account and for guests. Cross-device sync is not enabled.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom has 13 playable games and optional account sign-in. The games run on your device. Account authentication is handled by Firebase; game progress stays in this browser. Live matches and cross-device progress sync are planned for later.</p></div>`,'/settings');
+  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Results stay in this browser, separately for each signed-in account and for guests. Cross-device sync is not enabled.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom has ${games.length} playable games and optional account sign-in. The games run on your device. Account authentication is handled by Firebase; game progress stays in this browser. Live matches and cross-device progress sync are planned for later.</p></div>`,'/settings');
   document.querySelector('#motion-setting').onchange=event=>{const value=event.target.checked;document.documentElement.classList.toggle('reduce-motion',value);try{localStorage.setItem('axiom.reduced-motion',String(value));}catch{toast('This browser could not save the preference.');}};
   document.querySelector('#clear-progress').onclick=()=>{
     showDialog(`<div class="dialog-symbol">${icon('reset',28)}</div><h2>A fresh start?</h2><p>This removes your saved sessions and streak from this browser.</p><div class="dialog-actions"><button class="button secondary" data-close>Keep my progress</button><button class="button dark" id="confirm-clear">Clear progress</button></div>`);
@@ -212,7 +213,7 @@ function showDialog(content, className='') {
 }
 
 function openSearch(){
-  showDialog(`<div class="search-input-wrap">${icon('search',22)}<input type="search" id="game-search" placeholder="What would you like to play?" aria-label="Search games" autocomplete="off"></div><div class="search-label">FIND YOUR NEXT CHALLENGE</div><div id="search-results" class="search-results"></div><div class="search-footer">Escape to close <span>13 games. Plenty to discover.</span></div>`,'search-dialog');
+  showDialog(`<div class="search-input-wrap">${icon('search',22)}<input type="search" id="game-search" placeholder="What would you like to play?" aria-label="Search games" autocomplete="off"></div><div class="search-label">FIND YOUR NEXT CHALLENGE</div><div id="search-results" class="search-results"></div><div class="search-footer">Escape to close <span>${games.length} games. Plenty to discover.</span></div>`,'search-dialog');
   const input=document.querySelector('#game-search'),results=document.querySelector('#search-results');
   const update=()=>{const query=input.value.toLowerCase().trim();const matches=games.filter(g=>`${g.name} ${g.category} ${g.description}`.toLowerCase().includes(query));results.innerHTML=matches.length?matches.map(g=>`<a href="#/play/${g.id}" class="search-result"><span class="search-icon ${g.color}">${icon(g.icon)}</span><span><strong>${g.name}</strong><small>${g.category} · ${g.time}</small></span>${icon('arrow',17)}</a>`).join(''):'<p class="search-empty">No games found. Try “logic” or “memory”.</p>';};
   input.oninput=update;update();
