@@ -1,4 +1,4 @@
-import { getAdapter } from './adapters/index.js';
+import { adapters, getAdapter, multiplayerGames } from './adapters/index.js';
 import { element } from './adapters/shared.js';
 import { StateSync } from './state-sync.js';
 import { isRoomId, parseInvitation } from './protocol.js';
@@ -6,6 +6,8 @@ import { interfaceMarkup } from './markup.js';
 export function mountRoomInterface(container, { navigate = () => {}, path = '/multiplayer', search = '', client, transportFactory }) {
 container.innerHTML = interfaceMarkup;
 const $ = id => container.querySelector('#rmp-' + id);
+$('game-choice').replaceChildren(...multiplayerGames.map(game => element('option', { value: game.id }, [game.title])));
+$('game-list').replaceChildren(...multiplayerGames.map(game => element('li', {}, [game.title])));
 const terminal = status => ['finished', 'closed', 'expired'].includes(status);
 const elapsed = milliseconds => {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -64,7 +66,7 @@ function renderHistory(records) {
   const items = Object.values(records).filter(record => record && typeof record.matchId === 'string').sort((a, b) => b.createdAt - a.createdAt);
   if (!items.length) { $('history-list').replaceChildren(element('p', { class: 'rmp-quiet' }, ['No rooms yet. Start your first friendly challenge above.'])); return; }
   const rows = items.map(record => {
-    const title = record.game === 'sudoku' ? 'Mini Sudoku' : record.game === 'queens' ? 'Queens' : 'Puzzle';
+    const title = Object.hasOwn(adapters, record.game) ? getAdapter(record.game).title : 'Puzzle';
     const info = element('div', { class: 'rmp-history-info' }, [element('strong', {}, [`${title} · ${record.difficulty || 'medium'}`]), element('p', {}, [new Date(record.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })])]);
     const button = element('button', { type: 'button', class: 'button secondary', 'aria-label': `Open ${title} room ${record.code}` }, ['Open room']);
     button.addEventListener('click', () => { notice(''); openRoom(record.matchId); });
@@ -138,7 +140,9 @@ function updateMatch(room) {
   $('match-heading').textContent = `${adapter.title} race`;
   $('match-description').textContent = adapter.description;
   $('room-code').textContent = meta.joinCode || '—';
-  $('match-level').textContent = `${meta.difficulty[0].toUpperCase()}${meta.difficulty.slice(1)} · ${meta.game === 'sudoku' ? '6 × 6' : `${room.puzzle?.size || ({ easy: 5, medium: 6, hard: 7 }[meta.difficulty])} × ${room.puzzle?.size || ({ easy: 5, medium: 6, hard: 7 }[meta.difficulty])}`}`;
+  const size = room.puzzle?.size || adapter.sizes[meta.difficulty];
+  $('match-level').textContent = `${meta.difficulty[0].toUpperCase()}${meta.difficulty.slice(1)} · ${size} × ${size}`;
+  $('progress-note').textContent = `Progress shows ${adapter.progressLabel}; it can move backward and never decides the winner. Your opponent cannot read your board.`;
   const playable = isPlayable(room), expired = now >= meta.expiresAt || (meta.deadline && now >= meta.deadline);
   if (room.sync && room.sync.playable !== playable) room.sync.setPlayable(playable);
   let status = 'Waiting for a second player. Share the room code, then both select ready.';
@@ -191,7 +195,7 @@ function renderPlayers(room) {
     const status = room.result || terminal(room.meta.status) ? 'Room ended' : `${online ? 'Connected' : 'Disconnected'}${room.meta.status === 'waiting' ? (member.ready ? ' · ready' : ' · not ready') : ''}`;
     const avatar = element('span', { class: `rmp-player-avatar${own ? '' : ' rmp-opponent'}` }, [(member.displayName || 'P').slice(0, 1)]);
     const detail = element('div', {}, [element('strong', {}, [`${member.displayName || 'Player'}${own ? ' (you)' : ''}`]), element('small', {}, [status])]);
-    const track = element('div', { class: `rmp-player-track${own ? '' : ' rmp-opponent'}`, role: 'progressbar', 'aria-label': `${member.displayName || 'Player'} entry progress`, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': value }, [element('span', { style: `width:${value}%` })]);
+    const track = element('div', { class: `rmp-player-track${own ? '' : ' rmp-opponent'}`, role: 'progressbar', 'aria-label': `${member.displayName || 'Player'} ${getAdapter(room.meta.game).progressLabel}`, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': value }, [element('span', { style: `width:${value}%` })]);
     return element('div', { class: 'rmp-player' }, [element('div', { class: 'rmp-player-head' }, [avatar, detail, element('span', { class: 'rmp-player-percent' }, [`${value}%`])]), track]);
   });
   if (entries.length < 2) cards.push(element('div', { class: 'rmp-player rmp-quiet' }, [element('strong', {}, ['A seat for your friend']), element('p', {}, ['Waiting for the second player…'])]));
