@@ -17,7 +17,7 @@ const formatTime = seconds => `${Math.floor(seconds/60)}:${String(Math.floor(sec
 const dailyLink = id => `/play/${id}?daily=${localDay()}&difficulty=medium`;
 const randomSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 const currentSessions = () => readProgress().sessions;
-const nav = [ ['home','Discover','/'],['grid','All games','/games'],['calendar','Daily mix','/daily'],['chart','Your progress','/progress'] ];
+const nav = [ ['home','Discover','/'],['grid','All games','/games'],['people','Play with a friend','/multiplayer'],['calendar','Daily mix','/daily'],['chart','Your progress','/progress'] ];
 
 function toast(message) {
   const node=document.querySelector('#toast');
@@ -40,7 +40,7 @@ function shell(content, section = '/') {
       <a class="brand" href="#/" aria-label="Axiom home"><span class="brand-mark">a<span>·</span></span>axiom<span class="brand-dot">.</span></a>
       <div class="sidebar-label">YOUR DAILY MINDSPACE</div>
       <nav>${nav.map(([glyph,label,url])=>`<a href="#${url}" class="nav-link ${active===url?'active':''}" ${active===url?'aria-current="page"':''}>${icon(glyph)}<span>${label}</span>${url==='/daily'?'<span class="nav-count">3</span>':''}</a>`).join('')}</nav>
-      <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<span>Your space. Your pace.<small>Progress stays on this device.</small></span></div><a href="#/settings" class="nav-link ${active==='/settings'?'active':''}">${icon('settings')}<span>Preferences</span></a><a class="profile auth-profile account-entry" href="#/account" aria-label="Sign in to Axiom"><span class="avatar" data-account-initial>Y</span><span><span data-account-name>Sign in</span><small data-account-detail>Playing as a guest</small></span><span class="local-label" data-account-label>GUEST</span></a></div>
+      <div class="sidebar-bottom"><div class="local-note">${icon('shield')}<span>Your space. Your pace.<small>Solo progress stays on this device.</small></span></div><a href="#/settings" class="nav-link ${active==='/settings'?'active':''}">${icon('settings')}<span>Preferences</span></a><a class="profile auth-profile account-entry" href="#/account" aria-label="Sign in to Axiom"><span class="avatar" data-account-initial>Y</span><span><span data-account-name>Sign in</span><small data-account-detail>Playing as a guest</small></span><span class="local-label" data-account-label>GUEST</span></a></div>
     </aside>
     <div class="workspace"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Toggle navigation" aria-expanded="false">${icon('menu')}</button><div class="breadcrumbs">Your playground<span>/</span><strong>${section.startsWith('/play')?'Let’s play':section==='/account'?'Your account':nav.find(item=>item[2]===section)?.[1]||'Preferences'}</strong></div><div class="header-actions"><button class="search-button" id="open-search">${icon('search',17)}<span>Find a game</span><kbd>⌘ K</kbd></button><span class="streak" title="Consecutive days with a completed game">${icon('bolt',17)}<b>${stats.streak}</b><span>day streak</span></span><a class="auth-header-button account-entry" href="#/account" aria-label="Sign in to Axiom" data-account-action-label>Sign in</a></div></header><main id="main" tabindex="-1">${content}</main><footer class="footer"><span>A little play. A sharper mind.</span><span>Made for curious minds <span class="footer-dot">•</span> Browser prototype</span></footer></div>`;
   updateAccountChrome();
@@ -138,7 +138,7 @@ function renderProgress() {
 
 function renderSettings() {
   let reduced=false;try{reduced=localStorage.getItem('axiom.reduced-motion')==='true';}catch{}
-  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Results stay in this browser, separately for each signed-in account and for guests. Cross-device sync is not enabled.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom has ${games.length} playable games and optional account sign-in. The games run on your device. Account authentication is handled by Firebase; game progress stays in this browser. Live matches and cross-device progress sync are planned for later.</p></div>`,'/settings');
+  shell(`<div class="page-heading"><div><div class="eyebrow">MAKE YOURSELF AT HOME</div><h1>Your space. Your pace<span class="purple-text">.</span></h1><p>A few small settings to make play feel right.</p></div></div><section class="surface settings-surface"><div class="setting-row"><div><h3>Reduce motion</h3><p>Keep transitions still and focused. Your system preference is also respected.</p></div><label class="switch"><input id="motion-setting" type="checkbox" ${reduced?'checked':''}><span></span><span class="sr-only">Reduce motion</span></label></div><div class="setting-row"><div><h3>Local progress</h3><p>Solo results stay in this browser, separately for each signed-in account and for guests. Multiplayer rooms save separately online.</p></div><span class="status-tag">${icon('shield',14)} On device</span></div><div class="setting-row"><div><h3>Start fresh</h3><p>Remove completed sessions and your streak from this device.</p></div><button class="button secondary" id="clear-progress">Clear progress</button></div></section><div class="note-surface"><h3>Built for a little daily play</h3><p>Axiom has ${games.length} playable games and optional account sign-in. The games run on your device. Firebase handles account sign-in and optional multiplayer room data. Solo progress stays in this browser. Play with a friend to try casual Sudoku and Queens races.</p></div>`,'/settings');
   document.querySelector('#motion-setting').onchange=event=>{const value=event.target.checked;document.documentElement.classList.toggle('reduce-motion',value);try{localStorage.setItem('axiom.reduced-motion',String(value));}catch{toast('This browser could not save the preference.');}};
   document.querySelector('#clear-progress').onclick=()=>{
     showDialog(`<div class="dialog-symbol">${icon('reset',28)}</div><h2>A fresh start?</h2><p>This removes your saved sessions and streak from this browser.</p><div class="dialog-actions"><button class="button secondary" data-close>Keep my progress</button><button class="button dark" id="confirm-clear">Clear progress</button></div>`);
@@ -199,6 +199,21 @@ async function renderGame(id, token) {
   }catch(error){if(disposed)return;console.error(error);document.querySelector('#game-mount').innerHTML='<div class="empty-state"><h3>This game could not load.</h3><p>Please refresh and try again.</p><button class="button secondary" id="retry-game">Try again</button></div>';document.querySelector('#retry-game').onclick=()=>render();}
 }
 
+async function renderMultiplayerPage(token){
+  shell('<div id="multiplayer-mount"><div class="loading-state">Opening your room…</div></div>','/multiplayer');
+  document.title='Play with a friend · Axiom';
+  let disposed=false,controller;
+  cleanup=()=>{disposed=true;controller?.destroy?.();};
+  try {
+    const {mountMultiplayer}=await import('./realtime-multiplayer.js');
+    if(disposed||token!==routeToken)return;
+    controller=mountMultiplayer(document.querySelector('#multiplayer-mount'),{navigate,path:currentRoute().pathname,search:currentRoute().search,toast});
+  }catch(error){
+    if(disposed)return;
+    console.error(error);
+    document.querySelector('#multiplayer-mount').innerHTML='<div class="empty-state"><h2>Multiplayer could not load.</h2><p>Refresh to try again. Solo games are still available.</p><a class="button secondary" href="#/games">Solo games</a></div>';
+  }
+}
 
 function renderNotFound(){shell(`<div class="empty-state not-found"><span>${icon('route',40)}</span><h1>A little off the path.</h1><p>Let’s find you a good challenge.</p><a class="button dark" href="#/games">Explore all games ${icon('arrow',16)}</a></div>`);}
 
@@ -232,6 +247,7 @@ function render(){
   else if(path==='/account'||path==='/login')renderAccount(routeToken,path==='/login'?'signin':'account');
   else if(path==='/register')renderAccount(routeToken,'register');
   else if(path==='/forgot-password')renderAccount(routeToken,'reset');
+  else if(path==='/multiplayer'||path.startsWith('/room/'))renderMultiplayerPage(routeToken);
   else if(path.startsWith('/play/'))renderGame(path.split('/')[2],routeToken);
   else renderNotFound();
 }
