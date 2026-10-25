@@ -8,7 +8,7 @@ Eighteen logic, memory and number games, each with three difficulty levels, inst
 
 ## Multiplayer beta
 
-Race a friend in **Mini Sudoku** or **Queens**:
+Race a friend in **Mini Sudoku, Queens, Tango, Nonogram, or Lights Out**:
 
 1. Sign in to your Axiom account and choose **Play with a friend**.
 2. Create a room, choose a game and difficulty, and share the invitation link.
