@@ -1,3 +1,5 @@
+import { getAdapter } from './adapters/index.js';
+
 export const isRoomId = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value);
 export function parseInvitation(value) {
   const text = String(value || '').trim();
@@ -18,6 +20,5 @@ export function toMeta(control, id) {
     members: Object.fromEntries([[control.hostUid, { displayName: 'Player One', ready: control.readyHost }], ...(control.guestUid ? [[control.guestUid, { displayName: 'Player Two', ready: control.readyGuest }]] : [])]) };
 }
 export function resultProof(game, puzzle, board) {
-  if (game === 'sudoku') return false;
-  return Array.from({ length: puzzle.size }, (_, row) => board.slice(row * puzzle.size, (row + 1) * puzzle.size).indexOf(1));
+  return getAdapter(game).resultProof(puzzle, board);
 }
