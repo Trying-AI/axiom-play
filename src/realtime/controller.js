@@ -61,6 +61,14 @@ function showLobby({ clearPointer = false } = {}) {
   historyStop = transport.watchHistory(renderHistory, error => notice(readableError(error)));
   updateControls();
 }
+function goHome() {
+  if (destroyed) return;
+  if (user) storeRoom(user.uid, null);
+  // Release the room before navigating, including when a rematch call is still
+  // resolving. Its response must not reopen a room after the player has left.
+  destroy();
+  navigate('/');
+}
 function renderHistory(records) {
   if (destroyed) return;
   const items = Object.values(records).filter(record => record && typeof record.matchId === 'string').sort((a, b) => b.createdAt - a.createdAt);
@@ -79,9 +87,9 @@ function openRoom(matchId) {
   if (!user || !isRoomId(matchId)) { notice('That saved room identifier is invalid.'); return; }
   detachRoom();
   if (historyStop) { historyStop(); historyStop = null; }
-  const room = { id: matchId, meta: null, puzzle: null, state: null, summaries: {}, presence: {}, result: null, sync: null, boardUI: null, adapter: null, handle: null, syncView: null, error: false, ticker: null };
+  const room = { id: matchId, meta: null, puzzle: null, state: null, summaries: {}, presence: {}, result: null, rematch: null, rematchChosen: false, sync: null, boardUI: null, adapter: null, handle: null, syncView: null, error: false, ticker: null };
   currentRoom = room; storeRoom(user.uid, matchId); showView('match');
-  $('result-panel').hidden = true; $('match-heading').textContent = 'Preparing your room…'; $('match-description').textContent = '';
+  $('result-panel').hidden = true; $('result-actions').hidden = true; $('match-heading').textContent = 'Preparing your room…'; $('match-description').textContent = '';
   $('room-code').textContent = '—'; $('match-level').textContent = '—'; $('match-status').textContent = 'Loading the match…'; $('save-status').textContent = 'Loading board…';
   $('players').replaceChildren();
   const active = callback => (...args) => { if (currentRoom === room && !destroyed) callback(...args); };
@@ -90,12 +98,14 @@ function openRoom(matchId) {
     puzzle: active(puzzle => { room.puzzle = puzzle; ensureBoard(room); updateMatch(room); }),
     state: active(state => { room.state = state; if (room.adapter && state && room.adapter.validBoard(room.puzzle, state.board)) room.sync?.receive(state); ensureBoard(room); updateMatch(room); }),
     result: active(result => { room.result = result; updateMatch(room); }),
+    rematch: active(rematch => { room.rematch = rematch; updateMatch(room); }),
     summary: active((uid, value) => { room.summaries[uid] = value; renderPlayers(room); }),
     presence: active((uid, value) => { room.presence[uid] = value; renderPlayers(room); }),
     error: active(error => { room.error = true; room.sync?.setPlayable(false); notice(readableError(error)); updateMatch(room); }),
     recoverableError: active(error => { notice(readableError(error) + ' Reopen the room or reconnect to retry.'); }),
     presenceError: active(() => { /* Presence is advisory; board/result errors are handled separately. */ }),
   });
+  if (destroyed || currentRoom !== room) { void room.handle?.close(); return; }
   room.ticker = setInterval(() => updateMatch(room), 500);
 }
 function ensureBoard(room) {
@@ -145,7 +155,7 @@ function updateMatch(room) {
   $('progress-note').textContent = `Progress shows ${adapter.progressLabel}; it can move backward and never decides the winner. Your opponent cannot read your board.`;
   const playable = isPlayable(room), expired = now >= meta.expiresAt || (meta.deadline && now >= meta.deadline);
   if (room.sync && room.sync.playable !== playable) room.sync.setPlayable(playable);
-  let status = 'Waiting for a second player. Share the room code, then both select ready.';
+  let status = meta.previousRoomId ? 'Your rematch is ready. Waiting for your previous opponent to choose Rematch, then both select ready.' : 'Waiting for a second player. Share the room code, then both select ready.';
   if (room.error) status = 'This room is unavailable to this account. Return to rooms to continue.';
   else if (room.result || meta.status === 'finished') status = 'Match complete. The database has confirmed the result.';
   else if (meta.status === 'closed') status = 'This room was ended. Its last saved boards remain available to its players.';
@@ -203,10 +213,18 @@ function renderPlayers(room) {
 }
 function renderResult(room) {
   $('result-panel').hidden = !room.result;
+  $('result-actions').hidden = !room.result;
   if (!room.result) return;
   const name = room.meta?.members?.[room.result.winnerUid]?.displayName || 'The other player';
   $('result-heading').textContent = room.result.winnerUid === user.uid ? 'You solved it first.' : `${name} solved it first.`;
-  $('result-copy').textContent = `Valid board confirmed in ${elapsed(room.result.finishedAt - room.meta?.startAt)}. Both boards are now saved and locked. Start another room to play again.`;
+  $('result-copy').textContent = `Valid board confirmed in ${elapsed(room.result.finishedAt - room.meta?.startAt)}. Both boards are saved and locked. Choose Rematch below your board to play again, or return to the homepage.`;
+  const remaining = Math.max(0, room.result.finishedAt + 60000 - (Date.now() + clockOffset));
+  const offered = isRoomId(room.rematch?.roomId);
+  $('rematch-button').textContent = busy && room.rematchChosen ? 'Opening rematch…' : offered ? 'Join rematch' : 'Rematch';
+  $('rematch-button').disabled = busy || !connected || room.error || (!offered && remaining <= 0);
+  $('rematch-note').textContent = offered ? 'A rematch is ready with the same opponent. Join when you are ready.' : 'Same opponent, same level, a different puzzle. Both players choose Rematch to play again.';
+  $('return-countdown').textContent = room.rematchChosen ? (busy ? 'Automatic return paused while your rematch opens.' : !offered && remaining <= 0 ? 'The rematch window has ended. Go to the homepage or return to rooms to start a new match.' : 'Automatic return paused. Try Rematch again or go to the homepage.') : `Returning to the homepage in ${elapsed(Math.ceil(remaining / 1000) * 1000)} unless you choose Rematch.`;
+  if (!room.rematchChosen && remaining <= 0) goHome();
 }
 
 listen($('sign-in'), 'click', () => action(async () => {
@@ -219,6 +237,16 @@ listen($('create-form'), 'submit', event => { event.preventDefault(); void actio
 listen($('join-form'), 'submit', event => { event.preventDefault(); void action(async () => { const id = parseInvitation($('join-code').value); if (!id) throw new Error('Paste a valid room invitation link or its full room ID.'); const result = await transport.call('joinMatch', { code: id }); openRoom(result.matchId); }); });
 listen($('ready-button'), 'click', () => action(async () => { const room = currentRoom; if (!room?.meta) return; await transport.call('setReady', { matchId: room.id, ready: !room.meta.members?.[user.uid]?.ready }); }));
 listen($('submit-board'), 'click', () => action(async () => { const room = currentRoom; if (!room?.sync?.canonical || room.sync.pending || !isPlayable(room)) return; const response = await transport.call('submitResult', { matchId: room.id, revision: room.sync.canonical.revision }); if (currentRoom === room) { room.result = response.result; updateMatch(room); } }));
+listen($('rematch-button'), 'click', () => {
+  const room = currentRoom;
+  if (!room?.result || busy || !connected || $('rematch-button').disabled) return;
+  room.rematchChosen = true;
+  void action(async () => {
+    const response = await transport.call('rematch', { matchId: room.id });
+    if (!destroyed && currentRoom === room) openRoom(response.matchId);
+  });
+});
+listen($('home-button'), 'click', goHome);
 listen($('end-room'), 'click', () => action(async () => { if (currentRoom) await transport.call('leaveMatch', { matchId: currentRoom.id }); }));
 listen($('back-to-rooms'), 'click', () => { if (currentRoom?.sync?.pending) { notice('Wait for your move to save, or reconnect, before returning to rooms.'); return; } notice(''); showLobby({ clearPointer: true }); });
 listen($('copy-code'), 'click', () => action(async () => {

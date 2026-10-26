@@ -23,7 +23,7 @@ export async function createRealtimeTransport({ client, config = REALTIME_CONFIG
 export function createDatabaseTransport({ sdk, db, account, namespace = 'multiplayerV1' }) {
   const { ref, onValue, get, set, update, remove, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } = sdk;
   let connected = false, disposed = false, clockOffset = 0;
-  const cleanup = new Set(), handles = new Set();
+  const cleanup = new Set(), handles = new Set(), rematchRequests = new Map();
   const path = leaf => `${namespace}/${leaf}`;
   const at = leaf => ref(db, path(leaf));
   function uid() { const value = account()?.uid; if (!value || /[.#$\[\]/]/u.test(value)) throw new Error('Sign in to Axiom to continue.'); return value; }
@@ -37,11 +37,22 @@ export function createDatabaseTransport({ sdk, db, account, namespace = 'multipl
   async function readControl(id) { return (await get(at(`rooms/${roomId(id)}/control`))).val(); }
   async function saveHistory(id, control) {
     const target = at(`history/${uid()}/${id}`);
-    if (!(await get(target)).exists()) await set(target, { game: control.game, difficulty: control.difficulty, createdAt: control.createdAt });
+    if ((await get(target)).exists()) return;
+    const record = { game: control.game, difficulty: control.difficulty, createdAt: control.createdAt };
+    try { await set(target, record); }
+    catch (error) {
+      // History is immutable. Another tab may have saved the same record after
+      // our initial read, so verify the accepted record before treating it as a failure.
+      let saved;
+      try { saved = (await get(target)).val(); } catch { throw error; }
+      if (!saved || Object.keys(record).some(key => saved[key] !== record[key])) throw error;
+    }
   }
-  async function claimProfile(id) {
+  async function claimProfile(id, cooldownMs = 0) {
     const previous = (await get(at(`profiles/${uid()}`))).val();
     if ((previous?.count || 0) >= 100) throw new Error('You have used this beta’s 100 room participations. Your saved rooms are still available.');
+    const cooldown = (previous?.claimedAt || 0) + cooldownMs - (Date.now() + clockOffset);
+    if (cooldownMs && cooldown > 0) throw new Error(`Please wait ${Math.ceil(cooldown / 1000)} seconds before requesting a rematch.`);
     if (previous?.activeMatchId && previous.activeMatchId !== id) {
       let active;
       try { active = await readControl(previous.activeMatchId); } catch (error) { if (!isDenied(error)) throw error; }
@@ -50,18 +61,61 @@ export function createDatabaseTransport({ sdk, db, account, namespace = 'multipl
     }
     return { activeMatchId: id, count: (previous?.count || 0) + 1, claimedAt: serverTimestamp() };
   }
-  async function createMatch({ game, difficulty }) {
+  async function choosePuzzle(game, difficulty, excludedId) {
     getAdapter(game);
     if (!['easy', 'medium', 'hard'].includes(difficulty)) throw new Error('Choose a valid level.');
     const list = (await get(at(`catalogIndex/${game}/${difficulty}`))).val();
-    const choices = Object.values(list || {}).filter(value => typeof value === 'string');
+    const choices = Object.values(list || {}).filter(value => typeof value === 'string' && value !== excludedId);
     if (!choices.length) throw new Error('Puzzles for this level are not available yet. Try again later.');
     const random = new Uint32Array(1); crypto.getRandomValues(random);
+    return choices[random[0] % choices.length];
+  }
+  async function createMatch({ game, difficulty }) {
+    const puzzleId = await choosePuzzle(game, difficulty);
     const id = crypto.randomUUID(), profile = await claimProfile(id);
-    const control = { schemaVersion: 1, gameVersion: 1, game, difficulty, puzzleId: choices[random[0] % choices.length], hostUid: uid(), guestUid: '', readyHost: false, readyGuest: false, status: 'waiting', createdAt: serverTimestamp(), startedAt: 0, closedAt: 0 };
+    const control = { schemaVersion: 1, gameVersion: 1, game, difficulty, puzzleId, hostUid: uid(), guestUid: '', readyHost: false, readyGuest: false, status: 'waiting', createdAt: serverTimestamp(), startedAt: 0, closedAt: 0 };
     await update(ref(db), { [path(`rooms/${id}/control`)]: control, [path(`profiles/${uid()}`)]: profile, [path(`invites/${id}`)]: { game, difficulty, createdAt: serverTimestamp() } });
     const saved = await readControl(id); await saveHistory(id, saved);
     return { matchId: id, code: id };
+  }
+  async function requestRematch(id) {
+    const pointerRef = at(`rooms/${id}/rematch`);
+    const pointer = (await get(pointerRef)).val();
+    if (pointer) return joinMatch({ code: pointer.roomId });
+    try {
+      const [previous, result] = await Promise.all([readControl(id), get(at(`rooms/${id}/result`)).then(snapshot => snapshot.val())]);
+      if (!previous || ![previous.hostUid, previous.guestUid].includes(uid())) throw new Error('You are not a participant in this room.');
+      if (!result) throw new Error('Finish this match before requesting a rematch.');
+      if (Date.now() + clockOffset >= result.finishedAt + 60000) throw new Error('The rematch window has ended. Create a new room from multiplayer.');
+      const puzzleId = await choosePuzzle(previous.game, previous.difficulty, previous.puzzleId);
+      const nextId = crypto.randomUUID(), profile = await claimProfile(nextId, 10000);
+      const control = { schemaVersion: 1, gameVersion: 1, game: previous.game, difficulty: previous.difficulty, puzzleId, previousRoomId: id, hostUid: uid(), guestUid: '', readyHost: false, readyGuest: false, status: 'waiting', createdAt: serverTimestamp(), startedAt: 0, closedAt: 0 };
+      // The server accepts exactly one new room for this completed match. Its
+      // empty guest seat is reserved by rules for the original opponent.
+      await update(ref(db), {
+        [path(`rooms/${nextId}/control`)]: control,
+        [path(`profiles/${uid()}`)]: profile,
+        [path(`invites/${nextId}`)]: { game: control.game, difficulty: control.difficulty, createdAt: serverTimestamp() },
+        [path(`rooms/${id}/rematch`)]: { roomId: nextId, requestedBy: uid(), createdAt: serverTimestamp() },
+      });
+      await saveHistory(nextId, await readControl(nextId));
+      return { matchId: nextId, code: nextId };
+    } catch (error) {
+      // Another tab or the opponent may have won the atomic creation race. Join
+      // that one room rather than opening a second match or charging twice.
+      let accepted;
+      try { accepted = (await get(pointerRef)).val(); } catch { throw error; }
+      if (accepted) return joinMatch({ code: accepted.roomId });
+      throw error;
+    }
+  }
+  function rematch({ matchId }) {
+    const id = roomId(matchId);
+    if (!rematchRequests.has(id)) {
+      const pending = requestRematch(id).finally(() => { rematchRequests.delete(id); });
+      rematchRequests.set(id, pending);
+    }
+    return rematchRequests.get(id);
   }
   async function joinMatch({ code }) {
     const id = roomId(code);
@@ -75,7 +129,15 @@ export function createDatabaseTransport({ sdk, db, account, namespace = 'multipl
     if (!invite) throw new Error('That invitation was not found. Check the full room link.');
     if (Date.now() + clockOffset >= invite.createdAt + 3600000) throw new Error('That invitation has expired. Ask your friend for a new room.');
     const profile = await claimProfile(id);
-    await update(ref(db), { [path(`rooms/${id}/control/guestUid`)]: uid(), [path(`profiles/${uid()}`)]: profile });
+    try { await update(ref(db), { [path(`rooms/${id}/control/guestUid`)]: uid(), [path(`profiles/${uid()}`)]: profile }); }
+    catch (error) {
+      // Two tabs of the reserved opponent can accept the same rematch at once.
+      // A committed seat is resumable without a second participation claim.
+      let accepted;
+      try { accepted = await readControl(id); } catch { throw error; }
+      if (!accepted || ![accepted.hostUid, accepted.guestUid].includes(uid())) throw error;
+      await saveHistory(id, accepted); return { matchId: id, code: id };
+    }
     const saved = await readControl(id); await saveHistory(id, saved);
     return { matchId: id, code: id };
   }
@@ -122,7 +184,7 @@ export function createDatabaseTransport({ sdk, db, account, namespace = 'multipl
       return { ...value, status: 'closed', closedAt: serverTimestamp() };
     }, { applyLocally: false });
   }
-  const operations = { createMatch, joinMatch, setReady, submitResult, leaveMatch };
+  const operations = { createMatch, joinMatch, rematch, setReady, submitResult, leaveMatch };
   const connectionStop = watch(ref(db, '.info/connected'), online => { connected = online === true; });
   return {
     get connected() { return connected; },
@@ -196,6 +258,7 @@ export function createDatabaseTransport({ sdk, db, account, namespace = 'multipl
       });
       subscribe(`states/${self}`, callbacks.state);
       subscribe('result', value => { finished = Boolean(value); callbacks.result?.(value); });
+      subscribe('rematch', callbacks.rematch);
       stops.push(watch(ref(db, '.info/connected'), online => {
         if (online) { void registerPresence(); void loadPuzzle(); }
         else { presenceGeneration++; presenceRef = null; disconnectAction = null; }
